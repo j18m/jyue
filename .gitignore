@@ -1,0 +1,16 @@
+.gradle/
+build/
+out/
+target/
+
+*.class
+*.jar
+*.war
+*.ear
+
+.DS_Store
+*.log
+
+.idea/
+*.iml
+.vscode/
