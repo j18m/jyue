@@ -15,6 +15,7 @@ import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
 import com.xia.yue.burp.AuthzScanner;
 import com.xia.yue.burp.ScanConfig;
+import com.xia.yue.compat.MontoyaCompat;
 import com.xia.yue.core.DedupStore;
 import com.xia.yue.core.RequestFingerprint;
 import com.xia.yue.ui.XiaYuePanel;
@@ -28,13 +29,15 @@ public final class Extension implements BurpExtension {
     private final DedupStore dedupStore = new DedupStore();
     private XiaYuePanel panel;
     private AuthzScanner scanner;
+    private MontoyaApi api;
 
     @Override
     public void initialize(MontoyaApi api) {
+        this.api = api;
         api.extension().setName("jyue");
 
         panel = new XiaYuePanel(api.userInterface(), dedupStore);
-        scanner = new AuthzScanner(api, panel::currentConfig, panel);
+        scanner = new AuthzScanner(api, panel::currentConfig, panel, (message, throwable) -> MontoyaCompat.logError(api, message, throwable));
 
         api.userInterface().registerSuiteTab("jyue", panel);
         api.http().registerHttpHandler(new AutoProxyHandler());
@@ -51,10 +54,15 @@ public final class Extension implements BurpExtension {
 
         @Override
         public ResponseReceivedAction handleHttpResponseReceived(HttpResponseReceived responseReceived) {
-            ScanConfig config = panel.currentConfig();
-            HttpRequest request = responseReceived.initiatingRequest();
-            if (shouldAutoScan(responseReceived.toolSource(), request, config)) {
-                scanner.submit(request);
+            try {
+                ScanConfig config = panel.currentConfig();
+                HttpRequest request = responseReceived.initiatingRequest();
+                if (shouldAutoScan(responseReceived.toolSource(), request, config)) {
+                    scanner.submit(MontoyaCompat.capturedExchange(request, responseReceived));
+                }
+            } catch (Throwable throwable) {
+                MontoyaCompat.logError(api, "自动检测触发失败", throwable);
+                panel.error("自动检测触发失败", throwable);
             }
             return ResponseReceivedAction.continueWith(responseReceived);
         }
@@ -67,7 +75,8 @@ public final class Extension implements BurpExtension {
         if (toolSource.isFromTool(ToolType.EXTENSIONS) || !toolSource.isFromTool(ToolType.PROXY)) {
             return false;
         }
-        if (!isSupportedAutoMethod(request.method()) || isStaticResource(request.pathWithoutQuery())) {
+        String pathWithoutQuery = MontoyaCompat.pathWithoutQuery(request);
+        if (!isSupportedAutoMethod(request.method()) || isStaticResource(pathWithoutQuery)) {
             return false;
         }
 
@@ -81,7 +90,7 @@ public final class Extension implements BurpExtension {
                 service.host(),
                 service.port(),
                 request.method(),
-                request.pathWithoutQuery()
+                pathWithoutQuery
         );
         return dedupStore.markIfNew(fingerprint);
     }
@@ -98,27 +107,15 @@ public final class Extension implements BurpExtension {
     private final class SendToAuthzMenuProvider implements ContextMenuItemsProvider {
         @Override
         public List<Component> provideMenuItems(ContextMenuEvent event) {
-            List<HttpRequest> requests = collectRequests(event);
-            if (requests.isEmpty()) {
+            List<HttpRequestResponse> messages = MontoyaCompat.selectedRequestResponses(event);
+            if (messages.isEmpty()) {
                 return List.of();
             }
 
             JMenuItem item = new JMenuItem("Send to jyue 越权检测");
-            item.addActionListener(action -> requests.forEach(scanner::submit));
+            item.addActionListener(action -> messages.forEach(scanner::submit));
             return List.of(item);
         }
 
-        private List<HttpRequest> collectRequests(ContextMenuEvent event) {
-            List<HttpRequest> requests = new ArrayList<>();
-            for (HttpRequestResponse requestResponse : event.selectedRequestResponses()) {
-                if (requestResponse != null && requestResponse.request() != null) {
-                    requests.add(requestResponse.request());
-                }
-            }
-            event.messageEditorRequestResponse()
-                    .map(messageEditor -> messageEditor.requestResponse().request())
-                    .ifPresent(requests::add);
-            return requests;
-        }
     }
 }

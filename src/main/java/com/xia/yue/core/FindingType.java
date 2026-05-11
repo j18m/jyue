@@ -1,6 +1,8 @@
 package com.xia.yue.core;
 
 public enum FindingType {
+    QUEUED("排队中"),
+    PENDING("检测中"),
     LOW_PRIVILEGE_ACCESS("低权限可访问"),
     UNAUTHORIZED_ACCESS("未授权可访问"),
     SIMILAR_RESPONSE("疑似无差异"),

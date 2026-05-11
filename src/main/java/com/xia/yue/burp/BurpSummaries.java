@@ -1,6 +1,7 @@
 package com.xia.yue.burp;
 
 import burp.api.montoya.http.message.responses.HttpResponse;
+import com.xia.yue.compat.MontoyaCompat;
 import com.xia.yue.core.ResponseSummary;
 
 public final class BurpSummaries {
@@ -15,7 +16,7 @@ public final class BurpSummaries {
         }
         String body = response.bodyToString();
         String preview = body.length() > PREVIEW_LIMIT ? body.substring(0, PREVIEW_LIMIT) : body;
-        String mimeType = response.mimeType() == null ? "" : response.mimeType().toString();
+        String mimeType = MontoyaCompat.mimeType(response);
         return new ResponseSummary(response.statusCode(), response.toByteArray().length(), mimeType, preview);
     }
 }

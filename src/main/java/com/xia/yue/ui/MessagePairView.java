@@ -1,12 +1,13 @@
 package com.xia.yue.ui;
 
-import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.ui.UserInterface;
 import burp.api.montoya.ui.editor.EditorOptions;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
 import burp.api.montoya.ui.editor.HttpResponseEditor;
+import com.xia.yue.burp.CapturedExchange;
+import com.xia.yue.compat.MontoyaCompat;
 
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
@@ -30,20 +31,32 @@ final class MessagePairView extends JPanel {
         add(splitPane, BorderLayout.CENTER);
     }
 
-    void setMessage(HttpRequestResponse message) {
+    void setMessage(CapturedExchange message) {
         if (message == null) {
             clear();
             return;
         }
 
         requestEditor.setRequest(message.request());
-        if (message.hasResponse() && message.response() != null) {
+        if (message.response() != null) {
             responseEditor.setResponse(message.response());
+        } else {
+            setBlankResponse();
         }
     }
 
     void clear() {
-        requestEditor.setRequest(HttpRequest.httpRequest());
-        responseEditor.setResponse(HttpResponse.httpResponse());
+        HttpRequest request = MontoyaCompat.emptyRequest();
+        if (request != null) {
+            requestEditor.setRequest(request);
+        }
+        setBlankResponse();
+    }
+
+    private void setBlankResponse() {
+        HttpResponse response = MontoyaCompat.emptyResponse();
+        if (response != null) {
+            responseEditor.setResponse(response);
+        }
     }
 }

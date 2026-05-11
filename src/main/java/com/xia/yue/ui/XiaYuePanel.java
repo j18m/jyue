@@ -8,6 +8,7 @@ import com.xia.yue.core.DedupStore;
 import com.xia.yue.core.DomainWhitelist;
 import com.xia.yue.core.FindingType;
 import com.xia.yue.core.HeaderRules;
+import com.xia.yue.compat.MontoyaCompat;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -89,7 +90,13 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
 
     @Override
     public void accept(ScanResult result) {
-        SwingUtilities.invokeLater(() -> tableModel.add(result));
+        SwingUtilities.invokeLater(() -> {
+            long selectedId = selectedResult() == null ? Long.MIN_VALUE : selectedResult().id();
+            tableModel.upsert(result);
+            if (selectedId == result.id()) {
+                showSelectedResult();
+            }
+        });
     }
 
     @Override
@@ -106,7 +113,7 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
                     null,
                     null
             );
-            tableModel.add(result);
+            tableModel.upsert(result);
         });
     }
 
@@ -336,25 +343,25 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text == null ? "" : text), null);
     }
 
-    private static String requestText(burp.api.montoya.http.message.HttpRequestResponse message) {
+    private static String requestText(com.xia.yue.burp.CapturedExchange message) {
         return message == null || message.request() == null ? "" : decodeMessage(message.request());
     }
 
-    private static String responseText(burp.api.montoya.http.message.HttpRequestResponse message) {
-        return message == null || !message.hasResponse() || message.response() == null ? "" : decodeMessage(message.response());
+    private static String responseText(com.xia.yue.burp.CapturedExchange message) {
+        return message == null || message.response() == null ? "" : decodeMessage(message.response());
     }
 
-    private static String exportRequestText(burp.api.montoya.http.message.HttpRequestResponse message) {
+    private static String exportRequestText(com.xia.yue.burp.CapturedExchange message) {
         return truncateForExport(requestText(message));
     }
 
-    private static String exportResponseText(burp.api.montoya.http.message.HttpRequestResponse message) {
+    private static String exportResponseText(com.xia.yue.burp.CapturedExchange message) {
         return truncateForExport(responseText(message));
     }
 
     private static String decodeMessage(burp.api.montoya.http.message.HttpMessage message) {
         byte[] bytes = message.toByteArray().getBytes();
-        Charset charset = charsetFromContentType(message.headerValue("Content-Type"));
+        Charset charset = charsetFromContentType(MontoyaCompat.headerValue(message, "Content-Type"));
         return new String(bytes, charset);
     }
 
@@ -431,7 +438,14 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
         private static final String[] COLUMNS = {"#", "类型", "URL", "原始包长度", "低权限长度差", "未授权长度差"};
         private final List<ScanResult> results = new ArrayList<>();
 
-        void add(ScanResult result) {
+        void upsert(ScanResult result) {
+            for (int row = 0; row < results.size(); row++) {
+                if (results.get(row).id() == result.id()) {
+                    results.set(row, result);
+                    fireTableRowsUpdated(row, row);
+                    return;
+                }
+            }
             results.add(0, result);
             fireTableRowsInserted(0, 0);
         }
