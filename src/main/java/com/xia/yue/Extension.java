@@ -16,13 +16,13 @@ import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
 import com.xia.yue.burp.AuthzScanner;
 import com.xia.yue.burp.ScanConfig;
 import com.xia.yue.compat.MontoyaCompat;
+import com.xia.yue.core.DedupMode;
 import com.xia.yue.core.DedupStore;
 import com.xia.yue.core.RequestFingerprint;
 import com.xia.yue.ui.XiaYuePanel;
 
 import javax.swing.JMenuItem;
 import java.awt.Component;
-import java.util.ArrayList;
 import java.util.List;
 
 public final class Extension implements BurpExtension {
@@ -85,14 +85,20 @@ public final class Extension implements BurpExtension {
             return false;
         }
 
-        RequestFingerprint fingerprint = RequestFingerprint.of(
-                service.secure(),
-                service.host(),
-                service.port(),
-                request.method(),
-                pathWithoutQuery
-        );
-        return dedupStore.markIfNew(fingerprint);
+        RequestFingerprint fingerprint = fingerprintForMode(service, request, pathWithoutQuery, config.dedupMode());
+        return dedupStore.markIfNew(fingerprint, config.dedupMode());
+    }
+
+    private static RequestFingerprint fingerprintForMode(HttpService service, HttpRequest request, String pathWithoutQuery, DedupMode mode) {
+        if (mode == DedupMode.URL_WITH_QUERY_OR_BODY) {
+            String body = request.bodyToString();
+            String path = request.path();
+            if (body != null && !body.isBlank()) {
+                return RequestFingerprint.ofWithBody(service.secure(), service.host(), service.port(), request.method(), pathWithoutQuery, body);
+            }
+            return RequestFingerprint.ofWithQuery(service.secure(), service.host(), service.port(), request.method(), path);
+        }
+        return RequestFingerprint.of(service.secure(), service.host(), service.port(), request.method(), pathWithoutQuery);
     }
 
     private static boolean isSupportedAutoMethod(String method) {

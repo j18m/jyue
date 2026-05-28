@@ -1,13 +1,21 @@
 package com.xia.yue.core;
 
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class DedupStore {
     private final Set<String> seen = ConcurrentHashMap.newKeySet();
 
-    public boolean markIfNew(RequestFingerprint fingerprint) {
-        return seen.add(fingerprint.key());
+    public boolean markIfNew(RequestFingerprint fingerprint, DedupMode mode) {
+        if (mode == null) {
+            mode = DedupMode.URL_ONLY;
+        }
+        return switch (mode) {
+            case DISABLED -> true;
+            case URL_WITH_QUERY_OR_BODY -> seen.add(fingerprint.keyWithBody());
+            default -> seen.add(fingerprint.key());
+        };
     }
 
     public void clear() {

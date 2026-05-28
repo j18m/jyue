@@ -4,6 +4,7 @@ import burp.api.montoya.ui.UserInterface;
 import com.xia.yue.burp.ResultSink;
 import com.xia.yue.burp.ScanConfig;
 import com.xia.yue.burp.ScanResult;
+import com.xia.yue.core.DedupMode;
 import com.xia.yue.core.DedupStore;
 import com.xia.yue.core.DomainWhitelist;
 import com.xia.yue.core.FindingType;
@@ -13,10 +14,12 @@ import com.xia.yue.compat.MontoyaCompat;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
@@ -27,16 +30,20 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
 import javax.swing.RowFilter;
+import javax.swing.text.JTextComponent;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableRowSorter;
 import java.awt.BorderLayout;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Toolkit;
+import java.awt.Window;
+import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
@@ -59,15 +66,24 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
     private final JTextField whitelist = new JTextField();
     private final JTextArea lowPrivilegeHeaders = new JTextArea("Cookie: JSESSIONID=test;UUID=1; userid=admin\nAuthorization: Bearer test");
     private final JTextArea unauthorizedRemovedHeaders = new JTextArea("Cookie\nAuthorization\nToken");
+    private final JTextField lowPrivilegeHeaderKey = new JTextField();
+    private final JTextField lowPrivilegeHeaderValue = new JTextField();
+    private final JTextField unauthorizedHeaderKey = new JTextField();
+    private final JTextField unauthorizedHeaderValue = new JTextField();
     private final ResultTableModel tableModel = new ResultTableModel();
     private final JTable table = new JTable(tableModel);
     private final TableRowSorter<ResultTableModel> sorter = new TableRowSorter<>(tableModel);
     private final JTextField filterText = new JTextField();
     private final JComboBox<String> filterType = new JComboBox<>(filterOptions());
+    private final JComboBox<String> dedupModeBox = new JComboBox<>(dedupModeOptions());
     private final MessagePairView originalViewer;
     private final MessagePairView lowPrivilegeViewer;
     private final MessagePairView unauthorizedViewer;
     private final DedupStore dedupStore;
+    private JDialog settingsDialog;
+    private JButton clearButton;
+    private JButton lowPrivilegeAppendButton;
+    private JButton unauthorizedAppendButton;
 
     public XiaYuePanel(UserInterface userInterface, DedupStore dedupStore) {
         super(new BorderLayout());
@@ -84,7 +100,8 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
                 whitelistEnabled.isSelected(),
                 DomainWhitelist.parse(whitelist.getText()),
                 HeaderRules.parseAuthHeaders(lowPrivilegeHeaders.getText()),
-                HeaderRules.parseRemovedHeaderNames(unauthorizedRemovedHeaders.getText())
+                HeaderRules.parseRemovedHeaderNames(unauthorizedRemovedHeaders.getText()),
+                DedupMode.fromLabel(dedupModeBox.getSelectedItem() == null ? null : dedupModeBox.getSelectedItem().toString())
         );
     }
 
@@ -126,10 +143,9 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
             }
         });
         table.setComponentPopupMenu(buildTableMenu());
+        enabled.addItemListener(event -> refreshConfigState());
 
-        JSplitPane horizontal = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, buildMainPanel(), buildSettingsPanel());
-        horizontal.setResizeWeight(0.68);
-        add(horizontal, BorderLayout.CENTER);
+        add(buildMainPanel(), BorderLayout.CENTER);
     }
 
     private JPanel buildMainPanel() {
@@ -150,7 +166,7 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
 
     private JPanel buildSettingsPanel() {
         JPanel panel = new JPanel(new GridBagLayout());
-        panel.setPreferredSize(new Dimension(360, 700));
+        panel.setPreferredSize(new Dimension(360, 720));
         GridBagConstraints c = new GridBagConstraints();
         c.insets = new Insets(4, 4, 4, 4);
         c.fill = GridBagConstraints.HORIZONTAL;
@@ -163,37 +179,71 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
         add(panel, c, row++, new JLabel("版本：jyue V1.4"));
         add(panel, c, row++, enabled);
 
-        JButton clear = new JButton("清空列表");
-        clear.addActionListener(event -> {
+        clearButton = new JButton("清空列表");
+        clearButton.setToolTipText("立即清空结果列表并重置重复过滤，便于重新记录");
+        clearButton.addActionListener(event -> {
             tableModel.clear();
             dedupStore.clear();
             originalViewer.clear();
             lowPrivilegeViewer.clear();
             unauthorizedViewer.clear();
         });
-        add(panel, c, row++, clear);
+        add(panel, c, row++, clearButton);
+
+        add(panel, c, row++, new JLabel("重复请求过滤"));
+        add(panel, c, row++, dedupModeBox);
 
         add(panel, c, row++, new JLabel("白名单支持域名/IP/URL/*.域名，多个请用逗号、空格或换行分隔"));
         add(panel, c, row++, whitelist);
-        whitelistEnabled.addItemListener(event -> {
-            boolean locked = whitelistEnabled.isSelected();
-            whitelist.setEnabled(!locked);
-        });
+        whitelistEnabled.addItemListener(event -> refreshConfigState());
         add(panel, c, row++, whitelistEnabled);
 
-        add(panel, c, row++, new JLabel("越权：填写低权限认证信息，将会替换或新增"));
+        add(panel, c, row++, new JLabel("越权：支持直接复制/粘贴多行 Key: Value，也可通过下方输入框逐条添加"));
         c.fill = GridBagConstraints.BOTH;
-        c.weighty = 0.42;
+        c.weighty = 0.34;
         add(panel, c, row++, new JScrollPane(lowPrivilegeHeaders));
 
         c.weighty = 0;
         c.fill = GridBagConstraints.HORIZONTAL;
-        add(panel, c, row++, new JLabel("未授权：将移除下列头部认证信息，不区分大小写"));
+        add(panel, c, row++, buildHeaderEntryPanel(
+                lowPrivilegeHeaderKey,
+                lowPrivilegeHeaderValue,
+                "添加越权头部",
+                () -> appendHeaderLine(lowPrivilegeHeaders, lowPrivilegeHeaderKey, lowPrivilegeHeaderValue)
+        ));
+        add(panel, c, row++, new JLabel("未授权：支持直接复制/粘贴多行 Key: Value，也可通过下方输入框逐条添加；匹配时仅使用 Key，不区分大小写"));
 
         c.fill = GridBagConstraints.BOTH;
-        c.weighty = 0.42;
-        add(panel, c, row, new JScrollPane(unauthorizedRemovedHeaders));
+        c.weighty = 0.34;
+        add(panel, c, row++, new JScrollPane(unauthorizedRemovedHeaders));
+
+        c.weighty = 0;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        add(panel, c, row, buildHeaderEntryPanel(
+                unauthorizedHeaderKey,
+                unauthorizedHeaderValue,
+                "添加未授权头部",
+                () -> appendHeaderLine(unauthorizedRemovedHeaders, unauthorizedHeaderKey, unauthorizedHeaderValue)
+        ));
+        refreshConfigState();
         return panel;
+    }
+
+    private void showSettingsDialog() {
+        if (settingsDialog == null) {
+            Window owner = SwingUtilities.getWindowAncestor(this);
+            settingsDialog = new JDialog(owner);
+            settingsDialog.setTitle("jyue 配置");
+            settingsDialog.setModal(false);
+            settingsDialog.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
+            settingsDialog.setContentPane(new JScrollPane(buildSettingsPanel()));
+            settingsDialog.setSize(new Dimension(420, 760));
+            settingsDialog.setMinimumSize(new Dimension(380, 520));
+        }
+
+        settingsDialog.setLocationRelativeTo(this);
+        settingsDialog.setVisible(true);
+        settingsDialog.toFront();
     }
 
     private static void add(JPanel panel, GridBagConstraints c, int row, java.awt.Component component) {
@@ -201,16 +251,125 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
         panel.add(component, c);
     }
 
+    private JPanel buildHeaderEntryPanel(
+            JTextField keyField,
+            JTextField valueField,
+            String buttonLabel,
+            Runnable appendAction
+    ) {
+        keyField.setToolTipText("Header Key，例如 Authorization");
+        valueField.setToolTipText("Header Value，例如 Bearer test");
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints c = new GridBagConstraints();
+        c.insets = new Insets(2, 0, 2, 4);
+        c.fill = GridBagConstraints.HORIZONTAL;
+
+        c.gridx = 0;
+        c.gridy = 0;
+        c.weightx = 0.34;
+        panel.add(new JLabel("Key"), c);
+
+        c.gridx = 1;
+        c.weightx = 0.50;
+        panel.add(new JLabel("Value"), c);
+
+        c.gridx = 0;
+        c.gridy = 1;
+        c.weightx = 0.34;
+        panel.add(keyField, c);
+
+        c.gridx = 1;
+        c.weightx = 0.50;
+        panel.add(valueField, c);
+
+        c.gridx = 2;
+        c.gridy = 1;
+        c.weightx = 0;
+        c.insets = new Insets(2, 0, 2, 0);
+        JButton appendButton = new JButton(buttonLabel);
+        appendButton.addActionListener(event -> appendAction.run());
+        panel.add(appendButton, c);
+        if ("添加越权头部".equals(buttonLabel)) {
+            lowPrivilegeAppendButton = appendButton;
+        } else if ("添加未授权头部".equals(buttonLabel)) {
+            unauthorizedAppendButton = appendButton;
+        }
+
+        keyField.addActionListener(event -> appendAction.run());
+        valueField.addActionListener(event -> appendAction.run());
+        return panel;
+    }
+
+    private void refreshConfigState() {
+        boolean pluginLocked = enabled.isSelected();
+        boolean whitelistLocked = pluginLocked || whitelistEnabled.isSelected();
+
+        clearButton.setEnabled(!pluginLocked);
+        dedupModeBox.setEnabled(!pluginLocked);
+        whitelistEnabled.setEnabled(!pluginLocked);
+        setEditable(whitelist, !whitelistLocked);
+        setEditable(lowPrivilegeHeaders, !pluginLocked);
+        setEditable(unauthorizedRemovedHeaders, !pluginLocked);
+        setEditable(lowPrivilegeHeaderKey, !pluginLocked);
+        setEditable(lowPrivilegeHeaderValue, !pluginLocked);
+        setEditable(unauthorizedHeaderKey, !pluginLocked);
+        setEditable(unauthorizedHeaderValue, !pluginLocked);
+
+        if (lowPrivilegeAppendButton != null) {
+            lowPrivilegeAppendButton.setEnabled(!pluginLocked);
+        }
+        if (unauthorizedAppendButton != null) {
+            unauthorizedAppendButton.setEnabled(!pluginLocked);
+        }
+    }
+
+    private static void setEditable(JTextComponent component, boolean editable) {
+        component.setEditable(editable);
+        component.setEnabled(editable);
+    }
+
+    private void appendHeaderLine(JTextArea target, JTextField keyField, JTextField valueField) {
+        String key = keyField.getText().trim();
+        String value = valueField.getText().trim();
+        if (key.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "请输入 Header Key，例如 Authorization",
+                    "添加失败",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            keyField.requestFocusInWindow();
+            return;
+        }
+
+        String existing = target.getText();
+        if (!existing.isBlank() && !existing.endsWith("\n") && !existing.endsWith("\r")) {
+            target.append(System.lineSeparator());
+        }
+        target.append(formatHeaderLine(key, value));
+        keyField.setText("");
+        valueField.setText("");
+        keyField.requestFocusInWindow();
+    }
+
+    private static String formatHeaderLine(String key, String value) {
+        return value.isBlank() ? key : key + ": " + value;
+    }
+
     private JPanel buildFilterBar() {
         JPanel panel = new JPanel(new BorderLayout(6, 0));
         panel.add(new JLabel("筛选"), BorderLayout.WEST);
         panel.add(filterText, BorderLayout.CENTER);
 
-        JPanel actions = new JPanel(new BorderLayout(6, 0));
-        actions.add(filterType, BorderLayout.CENTER);
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        actions.add(filterType);
+        JButton settings = new JButton("配置");
+        settings.addActionListener(event -> showSettingsDialog());
+        actions.add(settings);
         JButton export = new JButton("导出当前表格");
         export.addActionListener(event -> exportCurrentTable());
-        actions.add(export, BorderLayout.EAST);
+        actions.add(export);
         panel.add(actions, BorderLayout.EAST);
 
         filterText.getDocument().addDocumentListener((SimpleDocumentListener) this::applyFilter);
@@ -335,6 +494,15 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
         options[0] = "全部类型";
         for (int i = 0; i < FindingType.values().length; i++) {
             options[i + 1] = FindingType.values()[i].label();
+        }
+        return options;
+    }
+
+    private static String[] dedupModeOptions() {
+        DedupMode[] modes = DedupMode.values();
+        String[] options = new String[modes.length];
+        for (int i = 0; i < modes.length; i++) {
+            options[i] = modes[i].label();
         }
         return options;
     }

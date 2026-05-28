@@ -1,6 +1,7 @@
 package com.xia.yue.burp;
 
 import com.xia.yue.core.AuthHeader;
+import com.xia.yue.core.DedupMode;
 import com.xia.yue.core.DomainWhitelist;
 
 import java.util.List;
@@ -11,6 +12,7 @@ public record ScanConfig(
         boolean whitelistEnabled,
         DomainWhitelist whitelist,
         List<AuthHeader> lowPrivilegeHeaders,
-        Set<String> unauthorizedRemovedHeaders
+        Set<String> unauthorizedRemovedHeaders,
+        DedupMode dedupMode
 ) {
 }
