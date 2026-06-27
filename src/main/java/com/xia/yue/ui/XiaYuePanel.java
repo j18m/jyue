@@ -179,17 +179,6 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
         add(panel, c, row++, new JLabel("版本：jyue V1.4"));
         add(panel, c, row++, enabled);
 
-        clearButton = new JButton("清空列表");
-        clearButton.setToolTipText("立即清空结果列表并重置重复过滤，便于重新记录");
-        clearButton.addActionListener(event -> {
-            tableModel.clear();
-            dedupStore.clear();
-            originalViewer.clear();
-            lowPrivilegeViewer.clear();
-            unauthorizedViewer.clear();
-        });
-        add(panel, c, row++, clearButton);
-
         add(panel, c, row++, new JLabel("重复请求过滤"));
         add(panel, c, row++, dedupModeBox);
 
@@ -370,6 +359,16 @@ public final class XiaYuePanel extends JPanel implements ResultSink {
         JButton export = new JButton("导出当前表格");
         export.addActionListener(event -> exportCurrentTable());
         actions.add(export);
+        clearButton = new JButton("清空列表");
+        clearButton.setToolTipText("立即清空结果列表并重置重复过滤，便于重新记录");
+        clearButton.addActionListener(event -> {
+            tableModel.clear();
+            dedupStore.clear();
+            originalViewer.clear();
+            lowPrivilegeViewer.clear();
+            unauthorizedViewer.clear();
+        });
+        actions.add(clearButton);
         panel.add(actions, BorderLayout.EAST);
 
         filterText.getDocument().addDocumentListener((SimpleDocumentListener) this::applyFilter);

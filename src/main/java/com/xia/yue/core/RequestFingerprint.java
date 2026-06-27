@@ -41,6 +41,13 @@ public record RequestFingerprint(String scheme, String host, int port, String me
         return String.join("|", scheme, host, String.valueOf(port), method, path, Objects.toString(body, ""));
     }
 
+    public String keyWithParams() {
+        if (body != null && !body.isBlank()) {
+            return keyWithBody();
+        }
+        return keyWithQuery();
+    }
+
     private static String normalize(String value) {
         return Objects.toString(value, "").trim().toLowerCase(Locale.ROOT);
     }

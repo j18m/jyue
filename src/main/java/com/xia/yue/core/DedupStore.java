@@ -13,7 +13,7 @@ public final class DedupStore {
         }
         return switch (mode) {
             case DISABLED -> true;
-            case URL_WITH_QUERY_OR_BODY -> seen.add(fingerprint.keyWithBody());
+            case URL_WITH_QUERY_OR_BODY -> seen.add(fingerprint.keyWithParams());
             default -> seen.add(fingerprint.key());
         };
     }
